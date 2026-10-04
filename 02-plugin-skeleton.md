@@ -32,10 +32,15 @@ dsh-document/
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
-  "exports": { ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" }, "./package.json": "./package.json" },
-  "files": ["lib", "cordis.patch.yml"],          // 发布产物:预构建 lib + 补丁文件,别忘了后者
-  "engines": { "node": ">=22.19" },
-  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },   // 这行让它成为一个 bundle
+  "exports": {
+    ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" },
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"           // 插件页的标题/描述(第 8 章 8.10)
+  },
+  "files": ["lib", "cordis.patch.yml", "locale/*.json", "icon.svg"],   // 预构建 lib + 补丁文件,别忘了后者
+  "engines": { "node": ">=22.19", "dsh": ">=0.1.0-rc.6 <0.3.0" },      // engines.dsh 只是声明,不强制
+  "icon": "./icon.svg",
+  "dsh": { "manifestVersion": 1, "bundle": { "patch": "./cordis.patch.yml" } },   // bundle.patch 让它成为一个 bundle
   "scripts": {
     "build": "tsdown",
     "prepare": "tsdown",                          // git 安装时没有 lib/,靠 prepare 现场构建
@@ -55,7 +60,7 @@ dsh-document/
     "@firecrawl/pdf-inspector-wasm": "1.14.2"
   },
   "devDependencies": {                             // ← peers 的具体版本 + 测试要的 Provider + 工具链
-    "@deepseek-ai/dsh-fs": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-fs": "0.1.0-rc.6",          // dsh-document 的测试仍编译在 rc.6 上
     "@deepseek-ai/dsh-fs-local": "0.1.0-rc.6",   // 测试跑真实组合要有 Provider
     ...
   }
@@ -64,7 +69,7 @@ dsh-document/
 
 **为什么 dsh 包必须是 peer 而不是 dependency。** profile 的 `node_modules` 里已经有一份 dsh(`dsh-tools`、`dsh-fs`……)。如果你把 `dsh-tools` 写成 dependency,pnpm 会给你装第二份——你的 `defineTool` 来自副本 A,profile 的 `ctx.tools` 来自副本 B,类型对不上、`instanceof` 失败、注册表是两个。peer 表示"我用宿主的那一份"。profile 端把 `autoInstallPeers` 关掉(`~/.dsh/profiles/*/pnpm-workspace.yaml` 里 `autoInstallPeers: false`),就是为了不让 pnpm 替你补第二份。
 
-peer 范围我们写成 `>=0.1.0-rc.5`(开放上限)是 pre-release 期的权宜——dsh 出稳定版后应收成 `^0.1.0`,让不兼容的宿主在安装期就报错(第 5 章末尾"宿主契约加固")。
+dsh-document v0.1.2 的 peer 仍是开放下限 `>=0.1.0-rc.5`。dsh 0.1.7 起,安装和启动都会拿 peer 范围去比 `dsh --version`,而 prerelease 也参与范围匹配,所以它在 0.2.0-rc.2 上照样能装。genui 则改成了封顶范围 `>=0.2.0-rc.2 <0.3.0`。两种写法的取舍见第 8 章 8.9。
 
 **`prepare: tsdown` 的代价。** 用户用 `github:owner/repo#sha` 安装时,包里没有 `lib/`,pnpm 会跑 `prepare` 现场构建——但 pnpm ≥ 10 默认**禁止依赖的构建脚本**,第一次 `add` 会失败并打印一把精确的钥匙,用户要把它抄进 profile 的 `pnpm-workspace.yaml`:
 
@@ -113,13 +118,15 @@ dsh-valuz-genui/
 ├── tsdown.config.ts        双目标 + CSS 插件
 ├── vitest.config.ts        jsdom + react 插件;inline @valuz/*
 ├── css-modules.d.ts        `*.module.css` 与 `@valuz/a2ui/styles.css` 的模块声明
+├── locale/{en,zh}.json     插件页标题/描述;icon.svg 插件图标(第 8 章 8.10)
 ├── src/
 │   ├── index.ts            宿主入口
 │   ├── tool.ts / prompt-section.ts
 │   ├── meta.ts             两半共享:tool/result.meta 的类型与守卫、<ui_action> 编解码
 │   └── client/
-│       ├── index.tsx       浏览器入口:注册 node + slot
+│       ├── index.tsx       浏览器入口:注册 node + 两个 slot + 文案
 │       ├── node.ts         ConversationNodeDefinition
+│       ├── locales.ts      valuzGenui 命名空间的 zh/en 词典
 │       ├── GenuiSurface.tsx  渲染器(用 @valuz/a2ui 的 A2UIRenderer)
 │       ├── action-bridge.ts  交互 → conversation.send
 │       └── partial-args.ts   从不完整 JSON 里抽完整的数组元素
@@ -139,8 +146,9 @@ dsh-valuz-genui/
 "dsh": {
   "bundle": { "patch": "./cordis.patch.yml" },
   "client": {
-    "inject": [                                      // 浏览器 shell 里先要有这些包
-      "@deepseek-ai/dsh-client-runtime",
+    "inject": [                                      // 先于本模块加载的浏览器包
+      "@deepseek-ai/dsh-client-locale",
+      "@deepseek-ai/dsh-client-ui-chat",
       "@deepseek-ai/dsh-client-ui-conversation",
       "@deepseek-ai/dsh-client-ui-theme"
     ],
@@ -148,20 +156,20 @@ dsh-valuz-genui/
   }
 },
 "scripts": { "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.client.json", ... },
-"peerDependencies": { ...宿主 dsh 包..., "@deepseek-ai/dsh-client-runtime": ">=0.1.0-rc.5", "...ui-conversation", "...ui-slots", "...ui-theme", "react": "^18.2.0 || ^19.0.0" }
+"peerDependencies": { ...宿主 dsh 包..., "@deepseek-ai/dsh-client-ui-chat": ">=0.2.0-rc.2 <0.3.0", "...ui-conversation", "...ui-slots", "...ui-theme", "react": "^18.2.0 || ^19.0.0" }
 ```
 
-`dsh.client` 让 `dsh web` 知道要加载你的 `./client` 导出,`inject` 是浏览器侧的加载顺序依赖。浏览器入口自己再声明服务级 `inject`:
+`dsh.client` 让 `dsh web` 知道要加载你的 `./client` 导出。`dsh.client.inject` 列的是**要先于本模块加载的包**;名字在当前 shell 里不存在时直接跳过,不报错(`deepseek-harness:packages/client/modules/src/client/system.ts:268-271`)。所以写错包名不会有任何提示,要靠服务级 `inject` 兜底。浏览器入口自己再声明服务级 `inject`:
 
 ```ts
-// dsh-valuz-genui:src/client/index.tsx
-export const inject = ['conversationEvents', 'slots', 'sessions', 'theme']
-export function apply(ctx: ClientContext): void { ... }
+// dsh-valuz-genui:src/client/index.tsx:33-36
+export const inject = ['uiConversation', 'slots', 'sessions', 'theme', 'locale']
+export function apply(ctx: Context): void { ... }   // Context 来自 @deepseek-ai/cordis
 ```
 
 ### 为什么是两个 tsconfig
 
-宿主的 `@deepseek-ai/dsh-session` 与浏览器的 `@deepseek-ai/dsh-client-runtime` **都**对 cordis 的 `Context.sessions` 做了 declaration merging,含义不同。放在一个 tsc 程序里,两份增量声明互相冲突。所以:
+宿主的 `@deepseek-ai/dsh-session` 与浏览器的 `@deepseek-ai/dsh-api-session-controller/client` **都**对 cordis 的 `Context.sessions` 做了 declaration merging,含义不同(第 1 章 1.2)。放在一个 tsc 程序里,两份增量声明互相冲突。所以:
 
 - `tsconfig.json`(宿主):`include: [src/index.ts, src/tool.ts, src/prompt-section.ts, src/meta.ts, tests/host, css-modules.d.ts]`
 - `tsconfig.client.json`(浏览器):`include: [src/client, src/meta.ts, tests/client, css-modules.d.ts]`,多 `jsx: react-jsx` 与 `dom` lib
@@ -177,12 +185,10 @@ export function apply(ctx: ClientContext): void { ... }
 const CLIENT_EXTERNALS = [
   'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client',
   '@deepseek-ai/cordis',
+  '@deepseek-ai/dsh-client-store',
   '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-web-react',
   '@deepseek-ai/dsh-client-ui-primitives',
-  '@deepseek-ai/dsh-client-ui-attachment',
-  '@deepseek-ai/dsh-client-schema-form',
-  '@deepseek-ai/dsh-client-runtime/client',
+  '@deepseek-ai/dsh-client-ui-dockkit',
 ]
 
 const client: UserConfig = {
@@ -204,8 +210,9 @@ const client: UserConfig = {
 }
 ```
 
-- **加载器包装**:`dsh web` 不是用 `<script type=module>` 加载插件,而是执行一段 CJS,包在 `window.__ModuleLoader__.load({ id, factory: (require) => {...} })` 里;`require` 由 shell 提供,**只认平台模块**。所以 `id` 必须是你的**包名**(dsh 的 `tsdown.client.ts` 文档明写 "plugin id (package name)"),改包名时同步改。
-- **纯度门**:`CLIENT_EXTERNALS` 就是 shell 会提供的全部模块;任何别的 import(a2ui、recharts、markdown-it、你自己的依赖)都得 inline 进 `client.js`。这清单是**手抄** dsh 的 `packages/client/tsdown.client.ts`——那份预设不在已发布包的导出里。宿主升级若增删平台模块,你要重构建(第 5 章末尾)。
+- **加载器包装**:`dsh web` 不是用 `<script type=module>` 加载插件,而是执行一段 CJS,包在 `window.__ModuleLoader__.load({ id, factory: (require) => {...} })` 里;`require` 由 shell 提供,**只认平台模块**。所以 `id` 必须是你的**包名**(dsh 的 `tsdown.client.ts` 文档明写 "plugin id (package name)",`deepseek-harness:packages/client/tsdown.client.ts:102`),改包名时同步改。
+- **纯度门**:`CLIENT_EXTERNALS` 就是 shell 会提供的全部模块;任何别的 import(a2ui、recharts、markdown-it、你自己的依赖)都得 inline 进 `client.js`。这份清单要**手抄** dsh 的 `PLATFORM_MODULES`(`deepseek-harness:packages/client/web/src/platform.ts:8-14`),那份列表不在已发布包的导出里。dsh 0.2 起清单变了:0.1 里的 `dsh-client-web-react`、`dsh-client-runtime/client`、`dsh-client-ui-attachment`、`dsh-client-schema-form` 都已不在,新增了 `dsh-client-store` 与 `dsh-client-ui-dockkit`。宿主升级若增删平台模块,你要重构建(第 5 章 5.6)。
+- 对其他 dsh 浏览器包(`ui-chat`、`ui-conversation`、`api-session-controller` 等)只用 **type-only import**,运行时不引用它们,它们就不必进 externals。genui 的客户端代码就是这样写的(第 4 章 4.1)。
 - 结果:`client.js` 3.5 MB(recharts + A2UI 渲染器 + markdown-it 都在里面),这是当前接受的代价。
 
 ### CSS 怎么进浏览器
@@ -250,7 +257,7 @@ const cssPlugin = {
 
 ## 2.3 pnpm 侧的三个文件
 
-- `.npmrc`:`auto-install-peers=false`(与 profile 一致;peers 的具体版本你在 `devDependencies` 里显式列)。
+- **不要**在插件仓库里关掉 `autoInstallPeers`。它是 profile 的策略(2.1),不是插件仓库的。dsh-document 曾经关掉它,结果 `dsh-llm` 的 peer `dsh-timeout` 没装上,测试套件加载失败,于是改回默认(`dsh-document` 提交 `7877671`)。pnpm 11 也不读 `.npmrc` 里的 `auto-install-peers`,设置要写在 `pnpm-workspace.yaml`。
 - `pnpm-workspace.yaml`:`allowBuilds`(pnpm 10+ 默认禁止依赖的 install 脚本,dsh dev 包的传递依赖 `koffi` 自带预编译二进制,标 `false` 拒绝其脚本即可;vitest 要 `esbuild: true`)、`minimumReleaseAgeExclude`(pnpm 11 的发布冷却期,刚发的上游版本要显式豁免,第 8 章)、`peerDependencyRules`。
 - `packageManager: "pnpm@11.12.0"` 写进 package.json:CI 的 `pnpm/action-setup` 从这里读版本;**如果同时在 action 里写 `version:`,会报 `ERR_PNPM_BAD_PM_VERSION`**(两个仓库都踩了一次)。
 
@@ -259,6 +266,6 @@ const cssPlugin = {
 写完骨架、还没写业务代码时,先过这几关:
 
 1. `pnpm run check` 全绿(两个 tsc 程序 + vitest + tsdown)。
-2. `pnpm pack` 看 tarball:应该**只有** `lib/`、`cordis.patch.yml`、`package.json`、`README`、`LICENSE`。
+2. `pnpm pack` 看 tarball:应该**只有** `lib/`、`cordis.patch.yml`、`locale/*.json`、`icon.svg`、`package.json`、`README`、`LICENSE`。
 3. 用一个一次性 profile 装它:`dsh plugin --profile scratch add /absolute/path/to/repo`(`dsh plugin` 把后面的参数转发给 profile 目录里的 pnpm,并维护 `bundles` 列表),然后 `dsh --profile scratch --dump-config` 看到你的行。用完 `rm -rf ~/.dsh/profiles/scratch`。
 4. 双半边的要装进带 web app 的 profile 才能看浏览器半边:`dsh plugin --profile web add /absolute/path/to/repo`,再 `dsh web`(等于 `dsh --profile web`),浏览器控制台无加载错误(第 9 章有"client.js 加载失败"的排查)。本地路径安装是 `link:`,改代码后 `pnpm run build` + 重启 `dsh web` + 硬刷新即可,不用重装。

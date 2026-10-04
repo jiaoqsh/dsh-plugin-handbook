@@ -27,7 +27,7 @@
 
 一个工具 `generate_ui(messages, title?)`:主模型自己写 [A2UI](https://a2ui.org) v0.9.1 文档,作为工具参数传入;浏览器把它渲染成对话里的交互式界面(图表、KPI 卡、表格、表单、仪表盘),**模型边写参数、浏览器边渲染**,界面上的点击/提交再回流给模型。
 
-- **宿主 + 浏览器双半边**:宿主注册工具、系统提示词段、按需 skill;浏览器注册一个 Conversation Node 与渲染器。
+- **宿主 + 浏览器双半边**:宿主注册工具、系统提示词段、按需 skill;浏览器注册一个 Conversation Node、它的渲染器,以及一个在轮次结尾展示结果的 turnTail 条目。
 - 依赖上游 npm 库 `@valuz/genui-core`(提示词/校验)与 `@valuz/a2ui`(76 组件目录 + 流式清洗 + React 渲染器),这两个库本身也是这次实战里从零发布到 npm 的。
 - 经历过一次架构转向(嵌套模型调用 → 主模型直写),第 6 章复盘。
 - 用 NPM_TOKEN 发布,GitHub Release 触发。
@@ -39,7 +39,7 @@
 - 代码引用格式:`仓库:路径:行号`,例如 `dsh-valuz-genui:src/client/node.ts:117`。
 - "官方文档"指 [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) 仓库 `docs/`,链接指向中文版(`.zh.md`)。
 - "宿主"= Node 进程里的 dsh(agent loop、工具、会话),"浏览器"= `dsh web` 的前端 shell。一个 bundle 可以只有宿主半边,也可以两半都有。
-- 版本:dsh `0.1.0-rc.6`、pnpm 11、Node 22/24、React 18(dsh 浏览器平台)。dsh 处于 pre-release 且明确声明"foundation over blast radius"——旧格式不做兼容,升级要看变更。
+- 版本:dsh `0.2.0-rc.2`(2026-10-04 更新;初版基于 `0.1.0-rc.6`)、pnpm 11、Node 22/24、React 18(dsh 浏览器平台)。dsh 处于 pre-release,公开 API 不承诺稳定。0.1 → 0.2 之间浏览器 API 整体换过一次、会话格式从 v0 升到 v4,升级要看变更。
 
 ## 一句话版本的核心结论
 
@@ -47,6 +47,6 @@
 
 1. **一切都是插件,注册都是效果**:你写的每个贡献(工具、提示词段、事件监听、slot)都通过 `ctx.xxx.register()` / `ctx.effect()` / `ctx.on()` 挂上,返回的 disposer 让卸载和热替换自动正确。
 2. **peer 而非 dependency 引用 dsh 包**:dsh 的包由 profile 提供一份;你若自带一份就会有两个注册表、两个 Context 类型,一切都对不上。
-3. **模型可见 ⟺ 已记录**:凡是进入模型请求的东西都必须能从会话日志重建。你不能随意写自定义会话事件(见第 5 章),但平台原生通道(`user/message`、`tool/result.meta`、`assistant/chunk`)已经够用。
+3. **模型可见 ⟺ 已记录**:凡是进入模型请求的东西都必须能从会话日志重建。你不能随意写自定义会话事件(见第 5 章),但平台原生通道(`user/message`、`tool/call` 参数、`tool/result.meta`)已经够用;流式渲染读的是浏览器侧的瞬时事件 `assistant/live-chunk`。
 4. **不要在工具里嵌套调模型**:主模型的输出本身就是流式的、已记录的、一次计费的。让主模型直接产出你要的东西,工具只做校验与持久化(第 6 章有一次 200 秒失败的完整复盘)。
-5. **发布链上的坑比代码多**:YAML 里 `@` 要加引号、`workspace:*` 只有 `pnpm publish` 会替换、pnpm 11 有发布冷却期和元数据缓存、`pnpm/action-setup` 与 `packageManager` 不能同时指定版本——第 8、9 章都是这类。
+5. **发布链上的坑比代码多**:YAML 里 `@` 要加引号、`workspace:*` 只有 `pnpm publish` 会替换、pnpm 11 有发布冷却期和元数据缓存、`pnpm/action-setup` 与 `packageManager` 不能同时指定版本、dsh 会按 peer 范围拒装不兼容的插件——第 8、9 章都是这类。

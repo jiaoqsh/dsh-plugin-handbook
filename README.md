@@ -1,7 +1,9 @@
 # DeepSeek Harness 插件开发实战手册
 
 > 基于两个真实树外插件的开发、发布与排障经验整理:**dsh-document**(一个工具 + 能力消费)与 **dsh-valuz-genui**(宿主 + 浏览器双半边、流式渲染、完整发布链)。
-> 记录时间 2026-08,对应 dsh `0.1.0-rc.6` 时代;dsh 处于 pre-release,API 可能变化,以官方仓库为准。
+> 初版写于 2026-08-18,对应 dsh `0.1.0-rc.6`;2026-10-04 按 dsh **`0.2.0-rc.2`**(仓库 HEAD `639ed01539`)全面更新,对应 dsh-valuz-genui v0.2.2、dsh-document v0.1.2。dsh 处于 pre-release,API 可能变化,以官方仓库为准。
+>
+> 从 0.1.x 升级过来的读者先看:浏览器半边换成了 `uiConversation`(第 4 章)、会话格式升到 v4 且 `assistant/chunk` 已不存在(第 5 章)、安装和启动都会强制检查 peer 版本(0.1.7 起,第 8 章 8.9)。
 
 ## 定位
 
@@ -18,12 +20,12 @@
 | 0 | [导读](00-intro.md) | 读者、阅读路径、两个案例、约定 |
 | 1 | [心智模型](01-mental-model.md) | everything is a plugin:Context / inject / effect、服务、事件、生命周期、宿主与浏览器两个平面 |
 | 2 | [树外插件骨架](02-plugin-skeleton.md) | 目录、package.json、cordis.patch.yml、双 tsconfig、tsdown 双目标、CSS 注入 |
-| 3 | [宿主半边](03-host-half.md) | 工具、Config、系统提示词段、按需 skill、能力消费、PTC(Code Mode)下你的工具 |
-| 4 | [浏览器半边](04-client-half.md) | Conversation Node 状态机、键与锚、折叠流式增量、slot、主题、动作桥 |
-| 5 | [会话与事件模型](05-session-and-events.md) | SessionEventMap、`ignorable`、model-visible ⟺ logged、持久化通道 |
+| 3 | [宿主半边](03-host-half.md) | 工具、Config、系统提示词段、按需 skill、能力消费、PTC 模式下你的工具 |
+| 4 | [浏览器半边](04-client-half.md) | `uiConversation` 注册、Conversation Node 状态机、按调用 id 定键、`assistant/live-chunk` 流式、轮次折叠与 turnTail、slot、主题、动作桥 |
+| 5 | [会话与事件模型](05-session-and-events.md) | 会话格式 v4、封闭的事件词汇表与 `ignorable`、model-visible ⟺ logged、持久化通道 |
 | 6 | [架构决策复盘](06-design-decisions.md) | 嵌套调用为何失败、DSL vs A2UI、目录进 skill、命名、依赖策略 |
-| 7 | [测试](07-testing.md) | 真实运行时宿主测试、jsdom 客户端测试、加载器冒烟、随包文件解析测试 |
-| 8 | [发布与安装](08-publish-and-install.md) | scope、publishConfig 拆分、pnpm publish、release.yml、`dsh plugin add` 三种来源、pnpm 11 的坑 |
+| 7 | [测试](07-testing.md) | 真实运行时宿主测试、jsdom 客户端测试、加载器冒烟、随包文件解析测试、开发 profile + Playwright 真机验证 |
+| 8 | [发布与安装](08-publish-and-install.md) | scope、publishConfig 拆分、pnpm publish、release.yml、`dsh plugin add` 三种来源、pnpm 11 的坑、版本兼容检查、插件元数据 |
 | 9 | [排障速查表](09-troubleshooting.md) | 症状 → 根因 → 修法 |
 | 10 | [清单与模板](10-checklist-and-templates.md) | 新插件 checklist、可复制模板 |
 
@@ -40,3 +42,7 @@
 - **第一次写 dsh 插件**:0 → 1 → 2 → 3 → 7 → 8,需要浏览器渲染再读 4、5。
 - **已经会写,来查坑**:9 → 10。
 - **要理解为什么这么设计**:6。
+
+## 许可证
+
+本手册以 [CC BY 4.0](LICENSE) 发布：可以转载、改编和商用，请注明出处（[jiaoqsh/dsh-plugin-handbook](https://github.com/jiaoqsh/dsh-plugin-handbook)）。手册中的代码片段和模板可以直接复制到你的项目里使用。

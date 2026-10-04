@@ -4,7 +4,7 @@
 
 ## 3.1 工具:`defineTool` 的每一格该放什么
 
-两个案例的工具注册结构一致(`dsh-document:src/tool.ts:171`、`dsh-valuz-genui:src/tool.ts:39`):
+两个案例的工具注册结构一致(`dsh-document:src/tool.ts:171`、`dsh-valuz-genui:src/tool.ts:38`):
 
 ```ts
 ctx.tools.register(defineTool({
@@ -34,6 +34,8 @@ ctx.tools.register(defineTool({
 - `render` 的返回进入模型上下文。**模型可见的文本超过约 50 KB 会被 spill(落盘、只给摘要)**,所以别把大文档塞这里。genui 只回一行收据:"Rendered an interactive UI (surface X) with N component type(s)... do not repeat it as text."
 - `presentationMeta` 的返回写进 `tool/result.meta`:**持久、随会话重放、无大小上限、不进模型上下文**。genui 把整份 A2UI 文档、组件名、校验警告全放这里,浏览器节点靠它做权威渲染与刷新后重放(第 4 章)。给它一个 `kind` 判别字段(`GENUI_META_KIND = 'genui-surface'`)和类型守卫(`isGenuiSurfaceMeta`),两半共用(`src/meta.ts`)。
 
+`presentationMeta` 的返回类型是 `JsonValue`。dsh 0.2 起它从 `@deepseek-ai/dsh-util-values` 导入(`deepseek-harness:packages/util/values/src/index.ts:4`,用法见 `dsh-valuz-genui:src/tool.ts:13,76`),不再从 `dsh-session` 拿。这个包要进 `devDependencies`。
+
 ### `presentCall` / `presentResult`:UI 意图在设计时定
 
 dsh 的规范是"工具的 UI 渲染意图是设计的一部分,事先决定,展示方法是 `args` 的纯函数"。可选卡片是封闭 union(`generic` / `terminal` / `diff` / `search` / `read` / `web`),配 `kind` 与 `locations`:
@@ -50,7 +52,7 @@ presentCall(args) {
 ### `execute(args, exec)`:能用的东西
 
 - `exec.signal`:一切 I/O 都传下去;dsh-document 的 worker 在它触发时 `terminate()`。
-- `exec.callId`:稳定的调用标识。genui 拿它当 `surfaceId`——同一份 UI 在流式阶段(来自 `tool-call-delta.id`)和 settle 阶段(`callId`)有同一个 id。
+- `exec.callId`:稳定的调用标识,类型是带品牌的 `ToolCallId`(dsh 0.2 起由 `CallId` 改名,`deepseek-harness:packages/llm/llm/src/brand.ts:31`;测试里用 `ToolCallId('call-1')` 构造,见 `dsh-valuz-genui:tests/host/generate-ui.spec.ts:37`)。genui 拿它当 `surfaceId`——同一份 UI 在流式阶段(来自 `tool-call-delta.id`)和 settle 阶段(`callId`)有同一个 id。
 - `exec.agent?.session.header.cwd`:会话工作区。dsh-document 用它解析相对路径,并给非 agent 调用者留 provider 缺省的退路。
 - **抛错就是给模型的反馈**:`throw new Error('generate_ui: messages must not be empty')`——消息要可操作(说清哪里错、该怎么改),别泄内部栈。dsh-document 把引擎错误翻译成 `describeFailure(displayPath, error)` 再抛。
 - `isConcurrencySafe: () => true`:只读工具标 true,允许与同一步的其他工具并行。
@@ -76,16 +78,19 @@ export function apply(ctx: Context, rawConfig: Config): void {
 
 枚举用 `Schema.union(['fidelity', 'compact']).default('fidelity')`。
 
+**`@deepseek-ai/schemastery` 的版本要和 dsh 对齐。** 它是你的 `dependency`,dsh 自己也带一份(0.2.0-rc.2 里是 `3.18.4`,`deepseek-harness:vendor/schemastery/package.json:4`)。两份版本不同时 pnpm 会装两份,`Schema<Config>` 的类型就对不上(症状见第 9 章)。genui 写成 `~3.18.4`(`dsh-valuz-genui:package.json`)。
+
 ## 3.3 系统提示词段
 
 ```ts
 ctx.systemPrompt.section({
   name: 'tool:read_document',   // 具名,便于排查与覆盖
-  order: 100,                   // 工具指导用 100–199 段位
+  order: 100,                   // 升序拼接;外部插件可用任意有限值,见下
   text: `Use the read_document tool — not read or shell commands — to inspect PDF, ...`,
 })
 ```
 
+- **`order` 决定位置。** 段按 `order` 升序拼接,相同 order 按名字排(`deepseek-harness:packages/core/system-prompt/README.md:56`)。0.1 时"工具指导用 100–199"的说法在 0.2 已经不成立:一方段位集中在 `SECTION_ORDERS`(`deepseek-harness:packages/core/system-prompt/src/index.ts:125-160`),工具指导在 1000–3100(`TOOL_BASH` 1000 … `MCP_SERVERS` 3100),`PTC_ONLY` 800、`TOOLS_SDK` 5000。两个插件仍写 100 / 110,所以它们排在全部一方工具说明**之前**。目前能用,但如果想让自己的工具说明挨着一方工具说明,就选 3100 和 5000 之间的值。
 - `text` 可以是**函数**,每次组装提示词都调用。genui 用它按"当前有没有 skill 能力"动态选紧凑/完整指南——不必重启、不必监听事件。
 - 内容是**稳定前缀**(KV-cache 友好):不要在里面放时间戳、随机内容、会话相关值。
 - 写什么:何时用这个工具、如何续读/续写、格式约定。genui 的段还包含 A2UI 消息契约与"收到 `<ui_action>` 时怎么办"。
@@ -134,36 +139,36 @@ const bytes = await ctx.fs.readBytes(target, exec.signal, caps.maxInputBytes)   
 
 能用的是 `ctx.llm.stream(GenerateOptions)`——**只有流式,没有非流式,没有 JSON mode**;provider/model 从 `exec.agent.session.requestHeader()?.config` 取(跟随会话当前模型),退路 `exec.agent.options` → `ctx.agentDefaultModel.currentSelection()`;`dsh-llm-retry` **只覆盖 agent loop**,工具里的调用要自理重试。genui v0.2 这样做过,v0.3 **删掉了**——第 6 章说明为什么"让主模型直接产出"几乎总是更好的设计。仓库里也没有任何一方工具在内部调模型,这是个信号。
 
-## 3.7 PTC(Code Mode)下你的工具长什么样
+## 3.7 PTC 模式下你的工具长什么样
 
-dsh 的 agent preset 里有一个 **PTC 模式**(Programmatic Tool Calling,内部叫 Code Mode,思路来自 Cloudflare 的 Code Mode)。它与 Standard 的差别在 `apps/cli/config/agent-presets/code/agent.cordis.yml` 里只有一行:
+dsh 的 agent preset 里有一个 **PTC 模式**(Programmatic Tool Calling,0.1 时内部叫 Code Mode)。它与 Standard 的差别在 `deepseek-harness:packages/bundle/web-app/presets/ptc.patch.yml:144-147` 里只有一行:
 
 ```yaml
 - id: tool-presentation
   name: '@deepseek-ai/dsh-agent-tool-presentation'
   config:
-    mode: code        # native | code | both
+    mode: ptc         # native | ptc | both(0.1 时叫 code)
 ```
 
-这一行改变的是**工具的呈现方式**,注册表本身不变(它是宿主平面的,agent loop 与 api-proxy 都读它;`ctx.tools.presentAs(mode)` 只对挂载它的 agent 生效,所以同一进程里 PTC 会话与 Standard 会话可以并存)。在 `code` 下模型看到的世界:
+这一行改变的是**工具的呈现方式**,注册表本身不变。呈现方式按 preset 生效,所以同一进程里 PTC 会话与 Standard 会话可以并存(`deepseek-harness:packages/core/agent-tool-presentation/README.md:12`)。在 `ptc` 下模型看到的世界:
 
-| | Standard(`native`) | PTC(`code`) |
+| | Standard(`native`) | PTC(`ptc`) |
 |---|---|---|
 | wire 上的工具目录 | 每个工具一个 JSON-schema 函数 | **只有 `run_code({code, description})`** |
-| 其他工具 | 就是目录本身 | 系统提示词里一段**自动生成的 TypeScript SDK 声明**(`tools:sdk` 段,order 150):`tools["read_document"](…)` 带参数类型、JSDoc、**返回值类型** |
-| 规则 | — | `tools:code-only` 段:只能直接调 `run_code`;执行端用**同一个谓词**拒绝直接调其他工具(`UNKNOWN_TOOL`) |
+| 其他工具 | 就是目录本身 | 系统提示词里一段**自动生成的 TypeScript SDK 声明**(`tools:sdk` 段,order 5000):`tools["read_document"](…)` 带参数类型、JSDoc、**返回值类型** |
+| 规则 | — | `tools:ptc-only` 段(`deepseek-harness:packages/core/tools/src/index.ts:878`):只能直接调 `run_code`;执行端用**同一个谓词**拒绝直接调其他工具(`UNKNOWN_TOOL`) |
 | 多步操作 | N 次往返,每个中间结果回灌上下文 | 一个程序跑完;只有 `console.log` 与 `return` 的内容回到模型 |
 
-运行机制:`run_code` 走完整工具管线 → 每个可见工具变成一个 async binding,打包成程序里的全局 `tools` → `ctx.codeRuntime.run()` 在**一个全新的 `worker_threads` Worker** 里执行(strip types、空环境、堆上限、`computeMs` 忙时 + `maxWallMs` 墙钟双预算、64 MiB 输出上限、硬终止)→ 程序内每次 `tools.x()` **重新进入完整工具管线**(审批、guard、`isConcurrencySafe` 分类,并发安全的可并行到 `maxParallelSubCalls`,默认 10)→ 每个子调用记 `tool/code-dispatch-start` / `tool/code-dispatch` 事件(日志与 UI 可见,不进模型历史)→ `logs + return` 作为 `run_code` 的结果回模型。信任模型与 bash 等价:worker 里没有 fs/网络,只能经 bindings 调工具,现有沙箱/审批栈原样生效。
+运行机制:`run_code` 走完整工具管线 → 每个可见工具变成一个 async binding,打包成程序里的全局 `tools` → `ctx.ptcRuntime` 执行程序。dsh 0.2 的 Node 实现每次调用**起一个全新的 Node 进程**,和 Bash 走同一套平台沙箱策略,有截止时间、输出上限和 V8 堆上限(`deepseek-harness:packages/ptc-runtime/ptc-runtime-node/README.md:12`)→ 程序内每次 `tools.x()` **重新进入完整工具管线**(审批、guard、`isConcurrencySafe` 分类,并发安全的可并行到 `maxParallelSubCalls`,默认 10,`deepseek-harness:packages/core/tools/src/index.ts:796`)→ 每个子调用记 `tool/ptc-dispatch-start` / `tool/ptc-dispatch` 事件(日志与 UI 可见,不进模型历史)→ `logs + return` 作为 `run_code` 的结果回模型。
 
 **对你的工具意味着什么**(这些都是 3.1 里那几格的直接后果):
 
 - **`output.schema` 就是 SDK 的返回类型**。binding 返回的是工具的**规范 JSON 值**(`execute` 的返回),不是 `render` 出来的文本;失败抛真实的 `ToolCallError`。所以:`output.schema` 要精确;规范值要对**程序**有用(id、结构化字段),而不只是对人可读——程序会 `const r = await tools["read_document"]({file_path}); r.lines.map(...)`。
 - **`description` 变成 JSDoc**,`parameters` 变成参数类型;工具名作为带引号的对象键,任意名字都行。
 - **审批、guard、并发分类照常生效**;`isConcurrencySafe` 为 true 的工具在程序里的连续调用会并行。
-- **任何依赖"模型直接调用你的工具"的设计在 `code` 下失效**。两个典型:依赖模型流式输出你的工具参数(`tool-call-delta`)做实时渲染;依赖你的 `tool/result.meta` 做 UI。程序内调用产生的是 `tool/code-dispatch`,payload 为 `{rootCallId, parentCallId, subCallId, name, arguments, isError, content}`——**没有 `meta`**(`packages/core/tools/src/code-mode.ts:512`);唯一的 `tool/result` 属于 `run_code`。genui 就是这样:在 PTC 下模型流式输出的是 TypeScript 而不是 `messages[]`,settle 后 meta 也不在任何浏览器节点能读的事件里,**界面完全不出现**,只剩 run_code 卡片里一行文本收据。`read_document` 这类纯文本/纯数据工具则完全不受影响,反而更好用。
+- **任何依赖"模型直接调用你的工具"的设计在 `ptc` 下失效**。两个典型:依赖模型流式输出你的工具参数(`tool-call-delta`)做实时渲染;依赖你的 `tool/result.meta` 做 UI。程序内调用产生的是 `tool/ptc-dispatch`,payload 为 `{rootCallId, parentCallId, subCallId, name, arguments, isError, content, error?}`——**仍然没有 `meta`**(`deepseek-harness:packages/core/tools/src/types.ts:20-25`,写入点 `packages/core/tools/src/ptc.ts:586`);唯一的 `tool/result` 属于 `run_code`。genui 就是这样:在 PTC 下模型流式输出的是 TypeScript 而不是 `messages[]`,settle 后 meta 也不在任何浏览器节点能读的事件里,**界面完全不出现**,只剩 run_code 卡片里一行文本收据。`read_document` 这类纯文本/纯数据工具则完全不受影响,反而更好用。
 
-**该做的**:在 Standard 和 PTC 两个 preset 下各真机跑一遍;若你的工具必须被直接调用,在 README 里写明"用 Standard 或 `mode: both`";若要在 `code` 下也能画 UI,需要浏览器节点额外匹配 `tool/code-dispatch` **并且**上游把 `presentationMeta` 带进该事件——这是一个有真实用例、可以向 dsh 提的小改动。
+**该做的**:在 Standard 和 PTC 两个 preset 下各真机跑一遍;若你的工具必须被直接调用,在 README 里写明"用 Standard 或 `mode: both`";若要在 `ptc` 下也能画 UI,需要浏览器节点额外匹配 `tool/ptc-dispatch` **并且**上游把 `presentationMeta` 带进该事件——这是一个有真实用例、可以向 dsh 提的小改动。
 
 ## 3.8 宿主半边检查点
 

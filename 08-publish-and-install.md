@@ -1,6 +1,6 @@
 # 8. 发布与安装
 
-这一章是整条链:上游库怎么变得可发布 → 插件包怎么打 → 两种 CI 发布模式 → 用户怎么装 → pnpm 11 的三个坑。所有内容都是真实跑通(并且踩过)的。
+这一章是整条链:上游库怎么变得可发布 → 插件包怎么打 → 两种 CI 发布模式 → 用户怎么装 → pnpm 11 的三个坑 → dsh 的版本兼容检查 → 插件页元数据。所有内容都是真实跑通(并且踩过)的。
 
 ## 8.1 发布前先定名字
 
@@ -21,7 +21,7 @@
 
 ## 8.3 插件包本身
 
-- `files: ["lib", "cordis.patch.yml"]`;`pnpm pack` 后 tarball 应**只有** `lib/index.js`(+ `lib/client.js`)、`cordis.patch.yml`、`package.json`、`README`、`LICENSE`(genui 642 KB,含 3.5 MB 未压缩的 client.js)。
+- `files: ["lib", "cordis.patch.yml", "locale/*.json", "icon.svg"]`;`pnpm pack` 后 tarball 应**只有** `lib/index.js`(+ `lib/client.js`)、`cordis.patch.yml`、`locale/*.json`、`icon.svg`、`package.json`、`README`、`LICENSE`(genui 642 KB,含 3.5 MB 未压缩的 client.js)。后两项是插件页元数据,见 8.10。
 - npm tarball 自带 `lib/` → 用户安装**不跑 `prepare`、不需要 allowBuilds**。这是相对 git 安装的主要体验优势。
 - 依赖分层复查:dsh 包 peer;上游库与运行时库 dependency;测试用 Provider 与工具链 devDependency;**别留只为内联上游源码而存在的传递依赖**(切到 npm 上游后 genui 删掉了 `@a2ui/*`、recharts、zod 等 8 个)。
 
@@ -63,7 +63,7 @@ steps:
     env: { NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }} }
 ```
 
-发布流程:bump `version` → `gh release create vX.Y.Z --target main`(**一步同时建 tag 与 Release,Release published 事件触发发布**);或 Actions 里手动 run(`workflow_dispatch`,不产生 tag)。**适合**:团队维护、多包 scope——一个 org 的 Granular Access Token(scope 限定 `@valuz`、read+write)覆盖现有和未来所有包,零逐包配置;私有包(`private: true`)`pnpm -r publish` 自动跳过。secret 建在 **Repository secrets**(不是 Environment secrets——工作流没声明 `environment:` 就读不到;Organization secrets 适合多仓库共享)。
+发布流程:bump `version` → `gh release create vX.Y.Z --target main`(**一步同时建 tag 与 Release,Release published 事件触发发布**)。`--target` 写分支名或完整 SHA;写短 SHA 会被 GitHub 拒绝,报 "target_commitish is invalid";或 Actions 里手动 run(`workflow_dispatch`,不产生 tag)。**适合**:团队维护、多包 scope——一个 org 的 Granular Access Token(scope 限定 `@valuz`、read+write)覆盖现有和未来所有包,零逐包配置;私有包(`private: true`)`pnpm -r publish` 自动跳过。secret 建在 **Repository secrets**(不是 Environment secrets——工作流没声明 `environment:` 就读不到;Organization secrets 适合多仓库共享)。
 
 两种模式都附 provenance。选择原则:**谁维护、几个包**——个人单包 OIDC 更省心,团队多包 token 更通用。
 
@@ -89,6 +89,8 @@ steps:
 2. **元数据缓存导致"装到旧版本"**:同一天先装了 0.1.0、再发 0.1.1,`add @scope/pkg` 仍解析到 0.1.0——不是冷却期,是 `~/Library/Caches/pnpm/v11/metadata/registry.npmjs.org/<pkg>.jsonl` 缓存的 packument 里还没有 0.1.1(解析器看不见就选不到);加豁免不管用。**修法**:精确版本 `add @scope/pkg@0.1.1`(强制刷新元数据),或删那个 `.jsonl`。别的机器(无缓存)直接就能拿到新版。
 3. **"Lockfile passes supply-chain policies (verified Ns ago)"** 只是缓存的 lockfile 校验结论,与版本解析无关,别被它带偏。
 
+还有一条不是 pnpm 的问题:**npm registry 本身有延迟**。发布成功后几分钟内,`npm view <pkg> version` 可能还是旧版本,`add` 也解析不到新版。等几分钟,并且刚发布后一律用精确版本安装(第 2 条)。
+
 另外:`dsh plugin … remove` 曾在 pnpm 尾部挂住并留下过期的 `bundles` 条目,手动编辑 profile `package.json` 删掉即可;`WARN Issues with peer dependencies` 在 rc 期常见,`pnpm peers check` 看一眼,一般是 dsh 内部包间的范围。
 
 ## 8.7 插件从"源码别名"切到"npm 依赖"的迁移清单
@@ -111,5 +113,53 @@ steps:
 2. `pnpm run check`(或 `pnpm check && pnpm -r build`)本地绿;`pnpm pack` 看 tarball。
 3. 模式 A:`git tag vX.Y.Z && git push origin vX.Y.Z`;模式 B:`gh release create vX.Y.Z --target main --title vX.Y.Z --notes "..."`。
 4. `gh run watch <id> --exit-status`;失败看 `gh run view <id>`——判断失败在 publish 前还是后。
-5. `npm view <pkg> version` 确认;私有包应 404。
-6. profile 里 `dsh plugin add <pkg>@X.Y.Z`(同天升级用精确版本),重启 web,真机过一遍第 7 章 7.5。
+5. `npm view <pkg> version` 确认(可能要等几分钟,见 8.6);私有包应 404。
+6. profile 里 `dsh plugin add <pkg>@X.Y.Z`(刚发布一律用精确版本),重启 web,真机过一遍第 7 章 7.5。
+7. 如果这一版改了支持的 dsh 范围,同步更新 README 的兼容表(8.9)。
+
+## 8.9 版本兼容检查:peer 范围是强制的
+
+**从 dsh 0.1.7 起,peer 范围会被强制检查**(app-boot README 从 `dsh-v0.1.7-rc.1` 开始写入这条规则),0.2.0-rc.2 同样如此。 安装和 profile 启动都会拿插件声明的 dsh peer 范围,去比 `dsh --version` 显示的运行时版本(`deepseek-harness:apps/cli/README.md:39`):
+
+- 只看 `@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-*` 这些 peer;每个范围都必须满足;**prerelease 参与范围匹配**;没写 dsh peer 就不受约束;范围写坏了算不兼容。`engines.dsh` 不参与检查(`deepseek-harness:packages/boot/app-boot/README.md:52`)。`@deepseek-ai/cordis` 也不在检查之列。
+- `dsh plugin add` 在 pnpm 运行**之前**就检查。本地路径读它自己的 `package.json`,registry 包按 pnpm 选中的版本查它声明的 peer。不兼容就拒绝,错误码 `incompatible-version`,会列出包名、版本、运行时版本和不满足的 peer(`deepseek-harness:packages/boot/plugin-manager/README.md:63,69`)。
+- 启动时不兼容的插件不加载,bundle 被跳过(`app-boot/README.md:54`)。这时 `--dump-config` 里看不到它的行,因为被跳过的 bundle 不贡献任何行;反过来,profile patch 里直接写的插件行被拒时仍会出现在 `--dump-config` 里(同上)。
+
+**例外**只能一对一地给:某个插件的精确版本 × 某个 dsh 运行时的精确版本。
+
+```sh
+dsh plugin --profile web allow-version @valuz/dsh-valuz-genui@0.2.2 --dsh-version <dsh --version 的输出> --accept-risk
+dsh plugin --profile web version-exemptions                       # 列出
+dsh plugin --profile web revoke-version @valuz/dsh-valuz-genui@0.2.2 --dsh-version <同上>
+```
+
+CLI 拒绝安装时会把对应的 `allow-version` 命令原样打印出来。例外存在 profile 自己的 `compatibility.json` 里;插件升级和 dsh 升级都不继承(`plugin-manager/README.md:65-69`)。
+
+**范围怎么写。** 两种取舍:
+
+| 写法 | 例子 | 好处 | 代价 |
+|---|---|---|---|
+| 封顶到一个 minor | genui:dsh 包 `>=0.2.0-rc.2 <0.3.0`,cordis `~4.0.4`(`dsh-valuz-genui:package.json`) | 不兼容的宿主在加载前就被拒,用户看到明确的错误 | dsh 每升一个 minor,插件都要发一版 |
+| 只写下限 | dsh-document:`>=0.1.0-rc.5`(`dsh-document:package.json`) | 宿主升级不用发版 | 宿主改了 API 也照样加载,出问题时是运行期错误 |
+
+API 面大的插件(尤其有浏览器半边的)建议封顶:genui 0.1.x 在 dsh 0.2 上的失败是"浏览器服务等不到",排查成本远高于一条安装期报错。只用工具、文件系统这类稳定接口的插件可以只写下限。不管哪种,README 里都放一张兼容表:
+
+```md
+| Plugin | DeepSeek Harness |
+|---|---|
+| 0.2.x | 0.2.x (from 0.2.0-rc.2) |
+| 0.1.x | 0.1.0-rc.6 to 0.1.1 |
+```
+
+(`dsh-valuz-genui:README.md:17-24`。)
+
+## 8.10 插件元数据:插件页上的标题、描述与图标
+
+dsh 的插件管理页和设置里的插件清单会读包的显示元数据。字段都可选,读取时不激活插件(`deepseek-harness:docs/cookbook/adding-a-package.md:112-150`,中文版[添加包 › 插件显示元数据](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/cookbook/adding-a-package.zh.md#plugin-display-metadata))。
+
+- **标题与描述**:`locale/en.json`(必须有,作为发现入口)和 `locale/zh.json` 等,内容是 `{ "meta": { "title": "…", "description": "…" } }`。标题回退顺序是 locale `meta.title` → `package.json.name` → Cordis 插件名;描述是 locale `meta.description` → `package.json.description`。
+- **导出与发布**:`exports` 加 `"./locale/*.json": "./locale/*.json"` 和 `"./package.json": "./package.json"`,`files` 里列 `locale/*.json`。
+- **图标**:`package.json` 顶层 `"icon": "./icon.svg"`,文件放进 `files`。支持 SVG / PNG / JPEG / WebP,不超过 256 KiB;路径不能是绝对路径、URL 或包目录之外。
+- **清单版本**:`dsh.manifestVersion: 1` 声明清单格式;`engines.dsh` 是作者声明的兼容范围,只作说明,不强制(8.9)。两者都可选(`deepseek-harness:packages/util/package-manifest/README.md:48-55`)。
+
+genui 与 dsh-document 都按这个补齐了(`dsh-valuz-genui` 提交 `7c5f28f`、`dsh-document` 提交 `3136682`),在插件页上核对过显示效果。

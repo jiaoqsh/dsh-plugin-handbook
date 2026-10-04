@@ -7,15 +7,16 @@
 - [ ] 一句话说清工具/能力给模型带来什么;它与 dsh 内置工具的边界(名字不撞语义,描述里写"for X use Y")。
 - [ ] 需要浏览器半边吗?能用内置卡片(`generic`/`read`/`diff`…)表达就不要自定义节点。
 - [ ] 需要模型在工具里再被调用吗?先想能否让主模型直出(第 6 章)。
-- [ ] 需要持久化什么?对照第 5 章 5.3 的表,确认全部落在原生通道。
+- [ ] 需要持久化什么?对照第 5 章 5.4 的表,确认全部落在原生通道。
 - [ ] 包名、scope、行 id、工具名定稿(发布后不再改)。
 
 ### 骨架
 
-- [ ] `package.json`:`type: module`、`main`/`exports`、`files: [lib, cordis.patch.yml]`、`engines`、`dsh.bundle.patch`(+ `dsh.client`)、`prepare: tsdown`、`packageManager`、`publishConfig.access`。
-- [ ] dsh 包全部 `peerDependencies`;具体版本在 `devDependencies`;测试用 Provider 在 dev。
+- [ ] `package.json`:`type: module`、`main`/`exports`、`files: [lib, cordis.patch.yml, locale/*.json, icon.svg]`、`engines`、`dsh.bundle.patch`(+ `dsh.client`)、`prepare: tsdown`、`packageManager`、`publishConfig.access`。
+- [ ] 插件页元数据:`locale/en.json`(+ `zh.json`)、`icon`、`dsh.manifestVersion: 1`,`exports` 带 `./locale/*.json` 与 `./package.json`(第 8 章 8.10)。
+- [ ] dsh 包全部 `peerDependencies`,范围想清楚封顶与否(第 8 章 8.9);具体版本在 `devDependencies`;测试用 Provider 在 dev;`@deepseek-ai/schemastery` 与 dsh 同版本。
 - [ ] `cordis.patch.yml`:scoped 名加引号;id 有辨识度;注释里给覆盖示例。
-- [ ] 双半边:两个 tsconfig;`PLUGIN_ID === name`;`CLIENT_EXTERNALS` 与 dsh `tsdown.client.ts` 对齐;CSS 走 `bundle()`。
+- [ ] 双半边:两个 tsconfig;`PLUGIN_ID === name`;`CLIENT_EXTERNALS` 与 dsh `PLATFORM_MODULES` 对齐;CSS 走 `bundle()`。
 - [ ] `pnpm run check` 绿;`pnpm pack` 只含预期文件;`--dump-config` 见到行。
 
 ### 宿主
@@ -27,21 +28,22 @@
 
 ### 浏览器
 
-- [ ] `inject` 与 `dsh.client.inject` 完整。
-- [ ] 节点:键 `turn:step`;工具过滤在 State;锚在工具事件;`animation-frame`/`immediate`;从 `tool/result` 单独可重建。
-- [ ] 渲染器:ErrorBoundary;主题跟随;样式有作用域;交互只经 `conversation.send`,失败不 throw、不泄 payload。
+- [ ] 服务级 `inject`、`dsh.client.inject`、type-only import 三处对齐(第 4 章 4.1)。
+- [ ] 节点:按调用 id 定键;锚取 start 事件;`animation-frame`/`immediate`;没有 live-chunk 时能从 `tool/call` + `tool/result` 重建;能处理没有 State 的 Context。
+- [ ] 结果和交互输出在轮次折叠后仍可见(turnTail,第 4 章 4.6)。
+- [ ] 渲染器:ErrorBoundary;主题跟随;样式有作用域;文案走 locale;交互只经 `conversation.send`,失败不 throw、不泄 payload。
 
 ### 测试
 
 - [ ] 宿主:真实 Context + 真实注册表 + Provider,经 `ctx.tools.execute`;`afterEach dispose`;可选能力两向。
-- [ ] 客户端:状态机纯函数用例(含重放);jsdom 渲染 + 交互。
+- [ ] 客户端:状态机纯函数用例(含重放);jsdom 渲染 + 交互,`afterEach(cleanup)`。
 - [ ] `cordis.patch.yml` 解析测试钉住 `{id, name === pkg.name}`。
 - [ ] 真机脚本走一遍(第 7 章 7.5)。
 
 ### 发布
 
 - [ ] `ci.yml` 与 `release.yml`(模式 A 或 B);secret 类型正确;`pnpm/action-setup` 不写 `version:`。
-- [ ] README:安装(npm 主路径 + git 备选)、配置表、Known limitations / Deferred work。
+- [ ] README:兼容表、安装(npm 主路径 + git 备选)、配置表、Known limitations / Deferred work。
 - [ ] 首发后 `npm view` 确认;profile 精确版本安装真机验证。
 
 ## 10.2 模板:`package.json`(双半边)
@@ -59,16 +61,24 @@
   "exports": {
     ".": { "default": "./lib/index.js" },
     "./client": { "default": "./lib/client.js" },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
   },
-  "files": ["lib", "cordis.patch.yml"],
-  "engines": { "node": ">=22.19" },
+  "files": ["lib", "cordis.patch.yml", "locale/*.json", "icon.svg"],
+  "icon": "./icon.svg",
+  "engines": { "node": ">=22.19", "dsh": ">=0.2.0-rc.2 <0.3.0" },
   "packageManager": "pnpm@11.12.0",
   "publishConfig": { "access": "public" },
   "dsh": {
+    "manifestVersion": 1,
     "bundle": { "patch": "./cordis.patch.yml" },
     "client": {
-      "inject": ["@deepseek-ai/dsh-client-runtime", "@deepseek-ai/dsh-client-ui-conversation", "@deepseek-ai/dsh-client-ui-theme"],
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-chat",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-theme"
+      ],
       "platform": "web"
     }
   },
@@ -80,27 +90,34 @@
     "check": "pnpm run typecheck && pnpm run test && pnpm run build"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-tools": ">=0.1.0-rc.5",
-    "@deepseek-ai/dsh-system-prompt": ">=0.1.0-rc.5",
-    "@deepseek-ai/dsh-session": ">=0.1.0-rc.5",
-    "@deepseek-ai/dsh-client-runtime": ">=0.1.0-rc.5",
-    "@deepseek-ai/dsh-client-ui-conversation": ">=0.1.0-rc.5",
-    "@deepseek-ai/dsh-client-ui-slots": ">=0.1.0-rc.5",
-    "@deepseek-ai/dsh-client-ui-theme": ">=0.1.0-rc.5",
+    "@deepseek-ai/cordis": "~4.0.4",
+    "@deepseek-ai/dsh-tools": ">=0.2.0-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-system-prompt": ">=0.2.0-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-session": ">=0.2.0-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-llm": ">=0.2.0-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-client-ui-chat": ">=0.2.0-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-client-ui-conversation": ">=0.2.0-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-client-ui-slots": ">=0.2.0-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-client-ui-theme": ">=0.2.0-rc.2 <0.3.0",
     "react": "^18.2.0 || ^19.0.0"
   },
-  "dependencies": { "@deepseek-ai/schemastery": "^3.18.1" },
+  "dependencies": { "@deepseek-ai/schemastery": "~3.18.4" },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-tools": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-system-prompt": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-session": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-llm": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-client-runtime": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-client-ui-conversation": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-client-ui-slots": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-client-ui-theme": "0.1.0-rc.6",
+    "@deepseek-ai/cordis": "~4.0.4",
+    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-session": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-util-values": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-api-session-controller": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-locale": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-store": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-ui-chat": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-ui-conversation": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-ui-renderer": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-ui-session": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-ui-theme": "0.2.0-rc.2",
     "@testing-library/react": "^16.3.0", "@testing-library/dom": "^10.4.0", "jsdom": "^26.1.0",
     "@vitejs/plugin-react": "^5.1.0", "@types/node": "^22.20.0", "@types/react": "^18.3.12", "@types/react-dom": "^18.3.1",
     "react": "^18.3.1", "react-dom": "^18.3.1",
@@ -109,7 +126,11 @@
 }
 ```
 
-单半边:去掉 `./client` 导出、`dsh.client`、`tsconfig.client.json`、client 相关 peers/dev,`main`/`exports` 可带 `types`。
+依据是 `dsh-valuz-genui:package.json`(v0.2.2)。单半边:去掉 `./client` 导出、`dsh.client`、`tsconfig.client.json`、client 相关 peers/dev,`main`/`exports` 可带 `types`。别忘了 `locale/en.json`:
+
+```json
+{ "meta": { "title": "Xxx Tools", "description": "One sentence on what the model gains." } }
+```
 
 ## 10.3 模板:`cordis.patch.yml`
 
@@ -139,15 +160,13 @@ import { bundle, transform } from 'lightningcss'
 const resolve = createRequire(import.meta.url).resolve
 const PLUGIN_ID = '@scope/dsh-xxx'          // == package.json.name
 
-const CLIENT_EXTERNALS = [                  // 对照 dsh packages/client/tsdown.client.ts
+const CLIENT_EXTERNALS = [                  // 对照 dsh packages/client/web/src/platform.ts 的 PLATFORM_MODULES(0.2.0-rc.2)
   'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client',
   '@deepseek-ai/cordis',
+  '@deepseek-ai/dsh-client-store',
   '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-web-react',
   '@deepseek-ai/dsh-client-ui-primitives',
-  '@deepseek-ai/dsh-client-ui-attachment',
-  '@deepseek-ai/dsh-client-schema-form',
-  '@deepseek-ai/dsh-client-runtime/client',
+  '@deepseek-ai/dsh-client-ui-dockkit',
 ]
 
 const CSS_VIRTUAL_PREFIX = '\0plugin-css:'
@@ -242,7 +261,59 @@ declare module '*.module.css' { const classes: Record<string, string>; export de
 declare module '@some/lib/styles.css'
 ```
 
-## 10.6 模板:`vitest.config.ts`
+## 10.6 模板:浏览器入口 `src/client/index.tsx`
+
+```tsx
+import type { Context } from '@deepseek-ai/cordis'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+// type-only import:把各服务的 Context 增量声明拉进编译(第 4 章 4.1)
+import type {} from '@deepseek-ai/dsh-api-session-controller/client'   // ctx.sessions
+import type {} from '@deepseek-ai/dsh-client-locale/client'            // ctx.locale
+import type {} from '@deepseek-ai/dsh-client-ui-chat/client'           // ChatNodeDataMap、turnTail slot
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'   // ctx.uiConversation
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'       // ctx.slots
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'        // 会话级 slot 的 sessionId
+import type {} from '@deepseek-ai/dsh-client-ui-theme/client'          // ctx.theme
+import { XxxNode, XxxTurnTail } from './XxxView.tsx'
+import { en, NS, type XxxKey, zh } from './locales.ts'
+import { xxxDefinition } from './node.ts'
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap { xxx: XxxKey }
+}
+
+export const inject = ['uiConversation', 'slots', 'sessions', 'theme', 'locale']
+
+export function apply(ctx: Context): void {
+  ctx.uiConversation.events.register(xxxDefinition)
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'xxx: dictionaries')
+  ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({
+    name: 'conversation.chat.node', key: 'xxx-node', locale: NS,
+    inject: () => ({ colorScheme: ctx.theme.getTheme().active.colorScheme }),
+  }, XxxNode))
+  ctx.slots.inject('conversation.chat.turnTail', () => ctx.slots.register({
+    name: 'conversation.chat.turnTail', id: 'xxx-results', locale: NS,
+    inject: (sessionId: SessionId) => {
+      const binding = ctx.sessions.binding(sessionId)
+      if (binding === undefined) throw new Error(`xxx: unknown session "${sessionId}"`)
+      const chat = ctx.uiConversation.binding(binding).target('chat')
+      return {
+        keyedHooks: {
+          results: (turn: string) => {
+            const snapshot = chat.getSnapshot()
+            if (snapshot === undefined) throw new Error('xxx: Chat target is unavailable')
+            return snapshot.nodes.turnDataSource(Number(turn), 'xxx-node')
+          },
+        },
+      }
+    },
+  }, XxxTurnTail))
+}
+```
+
+节点定义的写法见第 4 章 4.2–4.5,完整实现参考 `dsh-valuz-genui:src/client/node.ts`。不需要 turnTail 的插件(结果本来就不是交互输出)删掉第二个 slot 和 `ui-session`、`api-session-controller` 两行 import。
+
+## 10.7 模板:`vitest.config.ts`
 
 ```ts
 import { defineConfig } from 'vitest/config'
@@ -259,7 +330,7 @@ export default defineConfig({
 })
 ```
 
-## 10.7 模板:`tests/host/patch.spec.ts`
+## 10.8 模板:`tests/host/patch.spec.ts`
 
 ```ts
 import { readFileSync } from 'node:fs'
@@ -275,7 +346,7 @@ describe('cordis.patch.yml', () => {
 })
 ```
 
-## 10.8 模板:`.github/workflows/ci.yml`
+## 10.9 模板:`.github/workflows/ci.yml`
 
 ```yaml
 name: CI
@@ -294,7 +365,7 @@ jobs:
       - run: pnpm run check
 ```
 
-## 10.9 模板:`.github/workflows/release.yml`
+## 10.10 模板:`.github/workflows/release.yml`
 
 模式 B(NPM_TOKEN,团队 / 多包):
 
@@ -320,13 +391,15 @@ jobs:
 
 模式 A(OIDC,个人 / 单包):见第 8 章 8.4 的 dsh-document 版本(tag 触发、tag 与 version 校验、`npm install -g npm@latest`、`npm publish`、`gh release create`)。
 
-## 10.10 模板:README 骨架
+## 10.11 模板:README 骨架
 
 ```
 # dsh-xxx
 一段:给模型什么能力;建立在什么之上。
 ## How it works(3–5 条要点)
-## Install(npm 主路径;git 备选 + allowBuilds 钥匙;重启 web + 硬刷新)
+## Install
+### Compatibility(插件版本 × dsh 版本表;不兼容时 dsh 会拒装,见第 8 章 8.9)
+(npm 主路径;git 备选 + allowBuilds 钥匙;重启 web + 硬刷新)
 ### Local development(clone → pnpm install → check → dsh plugin add /abs/path)
 ## The tool(签名、参数、返回)
 ## Configuration(行 id;字段表:Key / Default / Meaning)

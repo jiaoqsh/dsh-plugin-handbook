@@ -53,12 +53,15 @@ ctx.inject(['skills'], (skillCtx) => skillCtx.skills.register({ ... }))  // 作�
 | 宿主 | `ctx.fs` | 读文件(`resolve / stat / readBytes`),受 dsh 文件策略约束 | dsh-document |
 | 宿主 | `ctx.skills`(可选) | 注册运行时 skill | dsh-valuz-genui |
 | 宿主 | `ctx.llm` | 调模型(`stream`) | genui v0.2 用过,v0.3 **刻意不用**(第 6 章) |
-| 浏览器 | `ctx.conversationEvents` | 注册 Conversation Node 定义 | dsh-valuz-genui |
+| 浏览器 | `ctx.uiConversation` | 注册 Conversation Node 定义(`events.register`)、按会话读 chat 快照 | dsh-valuz-genui |
 | 浏览器 | `ctx.slots` | 往具名 slot 注入渲染组件 | dsh-valuz-genui |
-| 浏览器 | `ctx.sessions` | 拿到某会话的作用域服务(如 `conversation.send`) | dsh-valuz-genui |
+| 浏览器 | `ctx.sessions` | 拿到某会话的 binding 与作用域服务(如 `conversation.send`) | dsh-valuz-genui |
 | 浏览器 | `ctx.theme` | 读当前 colorScheme | dsh-valuz-genui |
+| 浏览器 | `ctx.locale` | 注册界面文案词典 | dsh-valuz-genui |
 
-服务的类型通过 **declaration merging** 进 `Context`:每个 dsh 包在自己的 `.d.ts` 里 `declare module '@deepseek-ai/cordis' { interface Context { tools: ToolRegistry } }`。所以你要 `import type {} from '@deepseek-ai/dsh-fs'` 这种"空 import"把增量声明拉进编译——`dsh-document:src/tool.ts` 顶部两行就是干这个的。宿主与浏览器对 `Context.sessions` 的增量声明**互相冲突**(一个是宿主会话,一个是浏览器会话代理),这就是第 2 章双 tsconfig 的由来。
+dsh 0.2.0-rc.2 起,0.1.x 的浏览器服务 `conversationEvents` 已经删除,换成 `uiConversation`(第 4 章 4.1)。
+
+服务的类型通过 **declaration merging** 进 `Context`:每个 dsh 包在自己的 `.d.ts` 里 `declare module '@deepseek-ai/cordis' { interface Context { tools: ToolRegistry } }`。所以你要 `import type {} from '@deepseek-ai/dsh-fs'` 这种"空 import"把增量声明拉进编译——`dsh-document:src/tool.ts` 顶部两行就是干这个的。宿主与浏览器对 `Context.sessions` 的增量声明**互相冲突**:宿主是 `deepseek-harness:packages/core/session/src/index.ts:40` 的 `SessionStore`,浏览器是 `deepseek-harness:packages/api/session-controller/src/client/index.ts:93` 的 `ISessions`。这就是第 2 章双 tsconfig 的由来。
 
 ## 1.3 注册都是效果
 
@@ -71,19 +74,21 @@ Cordis 的核心纪律:**每一项贡献都通过 `ctx.effect()` / `ctx.on()` �
 官方[事件系统](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/develop/framework/events.zh.md)讲了 `emit`(广播)/ `bail`(短路)/ `serial`(顺序)/ `waterfall`(管道)。写插件时要区分两类事件:
 
 - **Cordis 事件**:进程内实时扩展点(`agent/pre-step`、`agent/request`、`llm/stream`、`tools/pre-execute` 等)。**waterfall 监听器必须调用 `next()`**,否则链被短路——这是最容易犯的错。
-- **会话事件**(`SessionEvent`):持久化到会话日志的记录(`user/message`、`step/start`、`assistant/chunk`、`assistant/message`、`tool/call`、`tool/result`、`step/end`……)。它们是**模型所见上下文的唯一来源**,也是浏览器 UI 的输入。第 5 章专讲。
+- **会话事件**(`SessionEvent`):持久化到会话日志的记录(`user/message`、`step/start`、`assistant/message`、`tool/call`、`tool/result`、`step/end`……)。它们是**模型所见上下文的唯一来源**,也是浏览器 UI 的输入。浏览器还会额外收到一种不落盘的瞬时事件 `assistant/live-chunk`,用来实时显示模型输出。第 5 章专讲。
 
 我们两个插件**一个 Cordis 事件监听都没写**——工具、提示词、Conversation Node 这些注册式扩展点已经够用。这本身是个信号:能用注册式扩展点就别碰事件钩子,更别改 agent loop。
 
 ## 1.5 一次轮次的流程(你的代码在哪一格)
 
-摘自官方架构文档:
+摘自官方[架构文档](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/architecture.zh.md)(简化,`deepseek-harness:docs/architecture.md:89-106`):
 
 ```text
 turn/start
+  agent/pre-step
   step/start
-  entered messages → user/message
-  agent/request → llm/stream → assistant/chunk* → assistant/message
+  agent/request → user/message(入选的输入)
+  llm/stream → agent/assistant-stream chunk*(进程内,不落盘)
+             → assistant/message | assistant/attempt(整段流一次性落盘)
   tool/call* → tools/pre-execute → tools/execute → tools/post-execute → tool/result*
   step/end
   (工具还欠一次请求,或有新输入 → 下一步)
@@ -94,7 +99,7 @@ turn/end
 
 - 系统提示词段在每步组装时被读取(`ctx.systemPrompt.section` 的 `text` 可以是函数,**每次组装都调用**——genui 用它按 skill 能力动态选紧凑/完整指南)。
 - 工具 schema 同样每步组装;`tools/execute` 阶段调用你的 `execute(args, exec)`;返回值经 `render` 变成模型可见文本,经 `presentationMeta` 变成 `tool/result.meta`(持久、不进模型上下文)。
-- 模型流里的每个 chunk 先落成 `assistant/chunk`(**在工具执行之前**),同时推到浏览器——genui 的流式渲染完全建立在这个事实上。
+- 模型流里的每个 chunk 以瞬时事件 `assistant/live-chunk` 推到浏览器(**在工具执行之前**),整段流在本次尝试结束时才落盘——genui 的流式渲染建立在前者上,刷新后的重放建立在 `tool/call` 与 `tool/result` 上(第 4 章 4.3)。
 - 浏览器 UI 上的交互经 `conversation.send(text)` 变成下一步的 `user/message`——所以模型看得见、日志里有。
 
 ## 1.6 两个平面:宿主与浏览器
@@ -106,8 +111,8 @@ turn/end
 | 运行在 | Node(dsh 进程) | `dsh web` 的浏览器 shell |
 | 入口 | `main`(`lib/index.js`,ESM) | `exports["./client"]`(`lib/client.js`,CJS 包在 `window.__ModuleLoader__.load` 里) |
 | 声明 | `dsh.bundle.patch` → `cordis.patch.yml` | `dsh.client { inject, platform: 'web' }` |
-| Context 类型 | `@deepseek-ai/cordis` 的 `Context` | `@deepseek-ai/dsh-client-runtime/client` 的 `ClientContext` |
-| 能拿到什么 | 会话、工具、模型、文件系统… | 会话事件流(只读)、slot、主题、`conversation.send` |
+| Context 类型 | `@deepseek-ai/cordis` 的 `Context` | 同一个 `Context`;服务字段靠 type-only import 增量声明进来(第 4 章 4.1) |
+| 能拿到什么 | 会话、工具、模型、文件系统… | 会话事件流(只读)、slot、主题、文案、`conversation.send` |
 | 打包 | 普通 ESM,dsh 包 external | **纯度门**:只有平台模块能 `require`,其余全部 inline |
 
 两半之间**没有私有 RPC**(typert `@Remote` 需要改仓库内包)。它们通过**会话事件**单向沟通(宿主写、浏览器读),浏览器要影响宿主只能走 `conversation.send` / `session.prompt` 这类"变成用户消息"的路。这既是限制也是保证:凡是浏览器让模型看到的东西,都被记录了。
@@ -133,6 +138,6 @@ dsh 把每种能力拆成三个角色:**Service Definition**(接口 + 类型)、
 └── node_modules/        dsh 的包 + 你的 bundle,只此一份
 ```
 
-`dsh plugin --profile web add <pkg>` 做的就是:往 `dependencies` 加包、往 `bundles` 加名、跑 pnpm 安装。你的 `cordis.patch.yml` 里的 `id` 就是用户覆盖你配置时用的名字——起个有辨识度的(`document-tools`、`valuz-genui`),别叫 `main`。
+`dsh plugin --profile web add <pkg>` 做的就是:先检查插件的 dsh peer 范围(第 8 章 8.9),再往 `dependencies` 加包、往 `bundles` 加名、跑 pnpm 安装。你的 `cordis.patch.yml` 里的 `id` 就是用户覆盖你配置时用的名字——起个有辨识度的(`document-tools`、`valuz-genui`),别叫 `main`。
 
 `--dump-config` 能打印合成后的 `cordis.yml`,是验证"我的行进去了没、配置对不对"的第一手段。
