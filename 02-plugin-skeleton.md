@@ -38,7 +38,7 @@ dsh-document/
     "./locale/*.json": "./locale/*.json"           // 插件页的标题/描述(第 8 章 8.10)
   },
   "files": ["lib", "cordis.patch.yml", "locale/*.json", "icon.svg"],   // 预构建 lib + 补丁文件,别忘了后者
-  "engines": { "node": ">=22.19", "dsh": ">=0.1.0-rc.6 <0.3.0" },      // engines.dsh 只是声明,不强制
+  "engines": { "node": ">=24.9.0", "dsh": ">=0.2.2-0 <0.3.0" },     // 0.2.1-alpha.4 起 engines.dsh 由安装/启动强制校验,且预发布参与匹配
   "icon": "./icon.svg",
   "dsh": { "manifestVersion": 1, "bundle": { "patch": "./cordis.patch.yml" } },   // bundle.patch 让它成为一个 bundle
   "scripts": {
@@ -69,7 +69,7 @@ dsh-document/
 
 **为什么 dsh 包必须是 peer 而不是 dependency。** profile 的 `node_modules` 里已经有一份 dsh(`dsh-tools`、`dsh-fs`……)。如果你把 `dsh-tools` 写成 dependency,pnpm 会给你装第二份——你的 `defineTool` 来自副本 A,profile 的 `ctx.tools` 来自副本 B,类型对不上、`instanceof` 失败、注册表是两个。peer 表示"我用宿主的那一份"。profile 端把 `autoInstallPeers` 关掉(`~/.dsh/profiles/*/pnpm-workspace.yaml` 里 `autoInstallPeers: false`),就是为了不让 pnpm 替你补第二份。
 
-dsh-document v0.1.2 的 peer 仍是开放下限 `>=0.1.0-rc.5`。dsh 0.1.7 起,安装和启动都会拿 peer 范围去比 `dsh --version`,而 prerelease 也参与范围匹配,所以它在 0.2.0-rc.2 上照样能装。genui 则改成了封顶范围 `>=0.2.0-rc.2 <0.3.0`。两种写法的取舍见第 8 章 8.9。
+dsh-document v0.1.2 的 peer 仍是开放下限 `>=0.1.0-rc.5`。dsh 0.1.7 起,安装和启动都会拿 peer 范围去比 `dsh --version`,而 prerelease 也参与范围匹配,所以它在 0.2.0-rc.2 上照样能装(这里说的是没有 engines.dsh 的旧包;若声明 engines.dsh,0.2.0-rc.2 仍只检查 peer,0.2.1-alpha.4 起才按 engines.dsh 判定)。genui 则改成了封顶范围 `>=0.2.0-rc.2 <0.3.0`。两种写法的取舍见第 8 章 8.9。
 
 **`prepare: tsdown` 的代价。** 用户用 `github:owner/repo#sha` 安装时,包里没有 `lib/`,pnpm 会跑 `prepare` 现场构建——但 pnpm ≥ 10 默认**禁止依赖的构建脚本**,第一次 `add` 会失败并打印一把精确的钥匙,用户要把它抄进 profile 的 `pnpm-workspace.yaml`:
 

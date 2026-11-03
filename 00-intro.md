@@ -39,7 +39,7 @@
 - 代码引用格式:`仓库:路径:行号`,例如 `dsh-valuz-genui:src/client/node.ts:117`。
 - "官方文档"指 [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) 仓库 `docs/`,链接指向中文版(`.zh.md`)。
 - "宿主"= Node 进程里的 dsh(agent loop、工具、会话),"浏览器"= `dsh web` 的前端 shell。一个 bundle 可以只有宿主半边,也可以两半都有。
-- 版本:dsh `0.2.0-rc.2`(2026-10-04 更新;初版基于 `0.1.0-rc.6`)、pnpm 11、Node 22/24、React 18(dsh 浏览器平台)。dsh 处于 pre-release,公开 API 不承诺稳定。0.1 → 0.2 之间浏览器 API 整体换过一次、会话格式从 v0 升到 v4,升级要看变更。
+- 版本:dsh `0.2.2-alpha.3`(2026-11-03 复核;初版基于 `0.1.0-rc.6`)、pnpm 11.28.5、Node `>=24.9`(0.2.2 起不再支持 Node 22)、React 18(dsh 浏览器平台)。dsh 处于 pre-release,公开 API 不承诺稳定。0.1 → 0.2 之间浏览器 API 整体换过一次、会话格式从 v0 升到 v4,升级要看变更。
 
 ## 一句话版本的核心结论
 
