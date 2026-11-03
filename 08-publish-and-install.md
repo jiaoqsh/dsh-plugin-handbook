@@ -37,8 +37,8 @@ permissions: { contents: write, id-token: write }
 steps:
   - uses: pnpm/action-setup@v4          # 版本来自 packageManager
   - uses: actions/setup-node@v4
-    with: { node-version: 22, cache: pnpm, registry-url: https://registry.npmjs.org }
-  - run: npm install -g npm@latest       # trusted publishing 需要 npm ≥ 11.5.1,Node 22 自带的旧
+    with: { node-version: 24, cache: pnpm, registry-url: https://registry.npmjs.org }
+  - run: npm install -g npm@latest       # trusted publishing 需要 npm ≥ 11.5.1;Node 24.9 自带满足
   - name: check tag against package.json # tag 必须等于 v<version>,否则失败
   - run: pnpm install --frozen-lockfile
   - run: pnpm run check
@@ -56,7 +56,7 @@ permissions: { contents: read, id-token: write }   # id-token 仍要:--provenanc
 steps:
   - uses: pnpm/action-setup@v4          # 不要写 version:,见下
   - uses: actions/setup-node@v4
-    with: { node-version: 22, registry-url: https://registry.npmjs.org, cache: pnpm }
+    with: { node-version: 24, registry-url: https://registry.npmjs.org, cache: pnpm }
   - run: pnpm install --frozen-lockfile
   - run: pnpm run check                 # 或 pnpm check + pnpm -r build(monorepo)
   - run: pnpm publish --access public --no-git-checks --provenance    # monorepo: pnpm -r publish
@@ -117,12 +117,12 @@ steps:
 6. profile 里 `dsh plugin add <pkg>@X.Y.Z`(刚发布一律用精确版本),重启 web,真机过一遍第 7 章 7.5。
 7. 如果这一版改了支持的 dsh 范围,同步更新 README 的兼容表(8.9)。
 
-## 8.9 版本兼容检查:peer 范围是强制的
+## 8.9 版本兼容检查:`engines.dsh` 优先,否则 peer 强制
 
-**从 dsh 0.1.7 起,peer 范围会被强制检查**(app-boot README 从 `dsh-v0.1.7-rc.1` 开始写入这条规则),0.2.0-rc.2 同样如此。 安装和 profile 启动都会拿插件声明的 dsh peer 范围,去比 `dsh --version` 显示的运行时版本(`deepseek-harness:apps/cli/README.md:39`):
+**从 dsh 0.1.7 起,兼容性检查会被强制执行**;0.2.1-alpha.4 起声明了 `engines.dsh` 时由它单独决定,否则检查 peer(0.2.0-rc.2 只检查 peer)。安装和 profile 启动都会拿声明去比 `dsh --version` 显示的运行时版本(`deepseek-harness:apps/cli/README.md:39`):
 
-- 只看 `@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-*` 这些 peer;每个范围都必须满足;**prerelease 参与范围匹配**;没写 dsh peer 就不受约束;范围写坏了算不兼容。`engines.dsh` 不参与检查(`deepseek-harness:packages/boot/app-boot/README.md:52`)。`@deepseek-ai/cordis` 也不在检查之列。
-- `dsh plugin add` 在 pnpm 运行**之前**就检查。本地路径读它自己的 `package.json`,registry 包按 pnpm 选中的版本查它声明的 peer。不兼容就拒绝,错误码 `incompatible-version`,会列出包名、版本、运行时版本和不满足的 peer(`deepseek-harness:packages/boot/plugin-manager/README.md:63,69`)。
+- 声明了 `engines.dsh` 时只由它决定、忽略 peer(0.2.1-alpha.4 起);没有 `engines.dsh` 时才检查 `@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-*` 这些 peer,每个范围都必须满足。**prerelease 参与范围匹配**;两者都没写就不受约束;范围写坏了算不兼容(`deepseek-harness:packages/boot/app-boot/README.md:52`)。`@deepseek-ai/cordis` 不在检查之列。
+- `dsh plugin add` 在 pnpm 运行**之前**就检查。本地路径读它自己的 `package.json`,registry 包按 pnpm 选中的版本查它声明的 peer。不兼容就拒绝,错误码 `incompatible-version`,会列出包名、版本、运行时版本和不满足的 peer(`deepseek-harness:packages/boot/plugin-manager/README.md:77,83`)。
 - 启动时不兼容的插件不加载,bundle 被跳过(`app-boot/README.md:54`)。这时 `--dump-config` 里看不到它的行,因为被跳过的 bundle 不贡献任何行;反过来,profile patch 里直接写的插件行被拒时仍会出现在 `--dump-config` 里(同上)。
 
 **例外**只能一对一地给:某个插件的精确版本 × 某个 dsh 运行时的精确版本。
@@ -160,6 +160,6 @@ dsh 的插件管理页和设置里的插件清单会读包的显示元数据。�
 - **标题与描述**:`locale/en.json`(必须有,作为发现入口)和 `locale/zh.json` 等,内容是 `{ "meta": { "title": "…", "description": "…" } }`。标题回退顺序是 locale `meta.title` → `package.json.name` → Cordis 插件名;描述是 locale `meta.description` → `package.json.description`。
 - **导出与发布**:`exports` 加 `"./locale/*.json": "./locale/*.json"` 和 `"./package.json": "./package.json"`,`files` 里列 `locale/*.json`。
 - **图标**:`package.json` 顶层 `"icon": "./icon.svg"`,文件放进 `files`。支持 SVG / PNG / JPEG / WebP,不超过 256 KiB;路径不能是绝对路径、URL 或包目录之外。
-- **清单版本**:`dsh.manifestVersion: 1` 声明清单格式;`engines.dsh` 是作者声明的兼容范围,只作说明,不强制(8.9)。两者都可选(`deepseek-harness:packages/util/package-manifest/README.md:48-55`)。
+- **清单版本**:`dsh.manifestVersion: 1` 声明清单格式;`engines.dsh` 一旦声明就由它单独决定兼容性、忽略 peer(0.2.1-alpha.4 起,8.9);不声明时才回退 peer 检查。两者都可选(`deepseek-harness:packages/util/package-manifest/README.md:48-55`)。
 
 genui 与 dsh-document 都按这个补齐了(`dsh-valuz-genui` 提交 `7c5f28f`、`dsh-document` 提交 `3136682`),在插件页上核对过显示效果。

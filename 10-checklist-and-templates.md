@@ -66,7 +66,7 @@
   },
   "files": ["lib", "cordis.patch.yml", "locale/*.json", "icon.svg"],
   "icon": "./icon.svg",
-  "engines": { "node": ">=22.19", "dsh": ">=0.2.0-rc.2 <0.3.0" },
+  "engines": { "node": ">=24.9.0", "dsh": ">=0.2.2-0 <0.3.0" },
   "packageManager": "pnpm@11.12.0",
   "publishConfig": { "access": "public" },
   "dsh": {
@@ -119,7 +119,7 @@
     "@deepseek-ai/dsh-client-ui-slots": "0.2.0-rc.2",
     "@deepseek-ai/dsh-client-ui-theme": "0.2.0-rc.2",
     "@testing-library/react": "^16.3.0", "@testing-library/dom": "^10.4.0", "jsdom": "^26.1.0",
-    "@vitejs/plugin-react": "^5.1.0", "@types/node": "^22.20.0", "@types/react": "^18.3.12", "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^5.1.0", "@types/node": "^24.0.0", "@types/react": "^18.3.12", "@types/react-dom": "^18.3.1",
     "react": "^18.3.1", "react-dom": "^18.3.1",
     "lightningcss": "^1.30.1", "tsdown": "^0.22.2", "typescript": "^5.9.3", "vitest": "^3.2.4", "yaml": "^2.8.0"
   }
@@ -360,7 +360,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4   # version comes from package.json "packageManager"
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: pnpm }
+        with: { node-version: 24, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm run check
 ```
@@ -382,7 +382,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4   # version comes from package.json "packageManager"
       - uses: actions/setup-node@v4
-        with: { node-version: 22, registry-url: https://registry.npmjs.org, cache: pnpm }
+        with: { node-version: 24, registry-url: https://registry.npmjs.org, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm run check
       - run: pnpm publish --access public --no-git-checks --provenance   # monorepo: pnpm -r publish
